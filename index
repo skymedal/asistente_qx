@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Asistente de Quirófano · Chatbot RAG de técnicas quirúrgicas</title>
+<meta name="description" content="Prueba de concepto de un chatbot RAG que responde solo con las técnicas quirúrgicas cargadas y rechaza todo lo demás. Trabajo de Fin de Máster.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============ CONFIGURACIÓN: edita solo esto ============ */
+  /* (los valores están en el bloque <script> del final)      */
+
+  :root{
+    --drape:#1F5C57;      /* verde de paño quirúrgico */
+    --drape-deep:#163F3C;
+    --wrap:#E6EFF3;       /* azul papel de esterilización */
+    --paper:#F7FAFB;
+    --ink:#14282C;
+    --steel:#6F7E85;
+    --steel-line:#C9D5DA;
+    --tape:#EADFBC;       /* cinta indicadora de autoclave */
+    --tape-mark:#2C3A3E;
+    --ok:#2E7D5B;
+    --stop:#B4442E;
+    --radius-tray:14px;
+    --radius-small:6px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+  body{
+    margin:0;background:var(--paper);color:var(--ink);
+    font-family:"Atkinson Hyperlegible",system-ui,sans-serif;
+    font-size:1.0625rem;line-height:1.6;
+  }
+  a{color:var(--drape);text-underline-offset:3px}
+  a:hover{color:var(--drape-deep)}
+  :focus-visible{outline:3px solid var(--drape);outline-offset:3px;border-radius:4px}
+  h1,h2,h3{font-family:"Barlow Condensed",sans-serif;font-weight:600;line-height:1.05;margin:0}
+  h2{font-size:clamp(2rem,4vw,2.75rem);letter-spacing:.005em}
+  h3{font-size:1.5rem}
+  p{margin:0 0 1em}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+  .measure{max-width:68ch}
+
+  /* ---------- cabecera ---------- */
+  header.top{border-bottom:1px solid var(--steel-line);background:var(--paper)}
+  header.top .wrap{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-top:14px;padding-bottom:14px}
+  .brand{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:1.25rem;color:var(--ink);text-decoration:none}
+  nav.top a{margin-left:18px;color:var(--steel);text-decoration:none;font-size:.95rem}
+  nav.top a:hover{color:var(--ink)}
+  @media (max-width:720px){nav.top{display:none}}
+
+  /* ---------- hero: la demo es lo primero ---------- */
+  .hero{background:var(--wrap);border-bottom:1px solid var(--steel-line)}
+  .hero .wrap{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:48px;padding-top:56px;padding-bottom:64px;align-items:start}
+  @media (max-width:900px){.hero .wrap{grid-template-columns:1fr;gap:32px;padding-top:40px}}
+  .hero h1{font-size:clamp(2.75rem,6vw,4.5rem);font-weight:700;color:var(--drape-deep);margin-bottom:20px}
+  .hero .lead{font-size:1.2rem;max-width:42ch}
+  .hero .meta{color:var(--steel);font-size:.95rem;margin-top:28px}
+  .hero .meta strong{color:var(--ink);font-weight:700}
+  .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}
+  .btn{display:inline-block;padding:12px 20px;border-radius:var(--radius-small);font-weight:700;text-decoration:none;border:2px solid var(--drape)}
+  .btn.primary{background:var(--drape);color:#fff}
+  .btn.primary:hover{background:var(--drape-deep);border-color:var(--drape-deep);color:#fff}
+  .btn.ghost{color:var(--drape);background:transparent}
+
+  /* bandeja de instrumental que enmarca el chat */
+  .tray{
+    background:#fff;border:1px solid var(--steel-line);border-radius:var(--radius-tray);
+    box-shadow:0 1px 0 #fff inset,0 18px 40px -24px rgba(22,63,60,.45);
+    overflow:hidden;
+  }
+  .tray-bar{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--drape);color:#fff;font-size:.9rem}
+  .tray-bar .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#7FD1A8;margin-right:8px;vertical-align:middle}
+  .tray iframe{display:block;width:100%;height:620px;border:0}
+  .tray .empty{padding:48px 28px;text-align:left}
+  .tray .empty h3{margin-bottom:10px;color:var(--drape-deep)}
+  .tray .empty code{background:var(--wrap);padding:2px 6px;border-radius:4px}
+  .suggest{padding:14px 16px;border-top:1px solid var(--steel-line);font-size:.92rem;color:var(--steel)}
+  .suggest ul{margin:6px 0 0;padding-left:18px}
+
+  /* ---------- secciones ---------- */
+  section{padding:80px 0}
+  section + section{border-top:1px solid var(--steel-line)}
+  section h2{margin-bottom:18px;color:var(--drape-deep)}
+
+  /* flujo: es una secuencia real, así que va numerado */
+  ol.flow{list-style:none;margin:36px 0 0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;counter-reset:step}
+  ol.flow li{position:relative;padding:22px 22px 22px 0;border-top:3px solid var(--drape)}
+  ol.flow li + li{padding-left:22px;border-left:1px solid var(--steel-line)}
+  ol.flow li::before{counter-increment:step;content:counter(step);font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:2.4rem;color:var(--drape);display:block;line-height:1;margin-bottom:8px}
+  ol.flow h3{margin-bottom:6px}
+  ol.flow p{font-size:.98rem;margin:0}
+  ol.flow .tech{display:block;margin-top:10px;font-size:.88rem;color:var(--steel)}
+  @media (max-width:900px){ol.flow{grid-template-columns:1fr 1fr}ol.flow li:nth-child(3){padding-left:0;border-left:0}}
+  @media (max-width:560px){ol.flow{grid-template-columns:1fr}ol.flow li,ol.flow li + li{padding-left:0;border-left:0}}
+
+  /* ---------- la doble barrera: el único elemento llamativo ---------- */
+  .barrier{background:var(--tape);position:relative;padding:72px 0}
+  .barrier::before,.barrier::after{
+    content:"";position:absolute;left:0;right:0;height:14px;
+    background:repeating-linear-gradient(135deg,var(--tape-mark) 0 12px,transparent 12px 30px);
+  }
+  .barrier::before{top:0}.barrier::after{bottom:0}
+  .barrier h2{color:var(--tape-mark)}
+  .gates{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:32px}
+  @media (max-width:760px){.gates{grid-template-columns:1fr}}
+  .gate{background:#FFFDF6;border:2px solid var(--tape-mark);border-radius:var(--radius-small);padding:24px}
+  .gate h3{margin-bottom:8px}
+  .gate .rule{font-weight:700}
+  .reject{margin-top:32px;background:var(--tape-mark);color:#fff;border-radius:var(--radius-small);padding:18px 22px;font-size:1.1rem}
+  .reject span{display:block;font-size:.88rem;opacity:.75;margin-bottom:4px}
+
+  /* ---------- tablas ---------- */
+  table{width:100%;border-collapse:collapse;margin-top:24px;font-size:1rem}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--steel-line);vertical-align:top}
+  th{font-weight:700;color:var(--steel);font-size:.92rem;border-bottom:2px solid var(--ink)}
+  td.num{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+  .bar{display:inline-block;height:10px;border-radius:5px;vertical-align:middle;margin-right:10px;background:var(--steel-line)}
+  .bar.in{background:var(--ok)}.bar.out{background:var(--stop)}
+  .threshold-note{margin-top:14px;color:var(--steel);font-size:.95rem}
+  .scroll{overflow-x:auto}
+
+  .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:56px}
+  @media (max-width:860px){.two{grid-template-columns:1fr;gap:32px}}
+  .docs li{margin-bottom:10px}
+  .docs strong{font-family:"Barlow Condensed",sans-serif;font-size:1.25rem;font-weight:600}
+
+  .qr{display:flex;gap:20px;align-items:center;margin-top:28px}
+  .qr img{width:132px;height:132px;background:#fff;border:1px solid var(--steel-line);border-radius:var(--radius-small);padding:6px}
+  .qr p{margin:0;font-size:.95rem;color:var(--steel);max-width:30ch}
+
+  footer{background:var(--drape-deep);color:#D6E4E2;padding:48px 0;font-size:.95rem}
+  footer a{color:#fff}
+  footer .warn{max-width:72ch;border-left:3px solid var(--tape);padding-left:16px;margin-bottom:24px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#">Asistente de Quirófano</a>
+    <nav class="top" aria-label="Secciones">
+      <a href="#como-funciona">Cómo funciona</a>
+      <a href="#barrera">Control de alucinaciones</a>
+      <a href="#evaluacion">Evaluación</a>
+      <a href="#herramientas">Herramientas</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="wrap">
+      <div>
+        <h1>Pregunta por una técnica quirúrgica. Responde solo con el manual.</h1>
+        <p class="lead">Un chatbot que consulta las técnicas quirúrgicas de prótesis de rodilla cargadas en su base documental, cita de qué sección sale cada dato y se niega a contestar lo que no está en ella.</p>
+        <div class="actions">
+          <a class="btn primary" id="open-chat" href="#" target="_blank" rel="noopener">Abrir el chat a pantalla completa</a>
+          <a class="btn ghost" href="#como-funciona">Ver cómo funciona</a>
+        </div>
+        <p class="meta"><strong id="author-name">Enrique</strong>, enfermero instrumentista de traumatología y ortopedia.<br>Trabajo de Fin de Máster en Inteligencia Artificial, <span id="master-name">IAcademia</span>.</p>
+        <div class="qr" id="qr-box" hidden>
+          <img id="qr-img" alt="Código QR para abrir esta página en el móvil">
+          <p>Escanéalo para probar el chat desde tu móvil durante la defensa.</p>
+        </div>
+      </div>
+
+      <div class="tray" aria-label="Demostración del chatbot">
+        <div class="tray-bar"><span><span class="dot" aria-hidden="true"></span>Asistente de Quirófano</span><span>Demo en directo</span></div>
+        <div id="chat-slot">
+          <div class="empty">
+            <h3>Falta enlazar el chatbot</h3>
+            <p>Pega la dirección pública de la app de Dify en <code>CONFIG.chatUrl</code>, al final de este archivo, y el chat aparecerá aquí.</p>
+          </div>
+        </div>
+        <div class="suggest">
+          Prueba con:
+          <ul>
+            <li>¿Cómo se realiza el corte distal en la rodilla ACS?</li>
+            <li>¿Qué grosores de construcción permite la TASP de Persona?</li>
+            <li>¿Cuál es la dosis de cefazolina en profilaxis? (debe rechazarla)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section id="como-funciona">
+    <div class="wrap">
+      <h2>Cómo funciona</h2>
+      <p class="measure">Es una arquitectura RAG (generación aumentada por recuperación): el modelo de lenguaje no responde de memoria, sino con los fragmentos de los manuales que el sistema encuentra para cada pregunta.</p>
+      <ol class="flow">
+        <li>
+          <h3>Preguntas</h3>
+          <p>Escribes la duda tal como la dirías en quirófano.</p>
+          <span class="tech">Chat de Dify</span>
+        </li>
+        <li>
+          <h3>Busca en los manuales</h3>
+          <p>Convierte la pregunta en un vector y recupera las 4 secciones más parecidas de las técnicas cargadas.</p>
+          <span class="tech">gemini-embedding-001, búsqueda vectorial</span>
+        </li>
+        <li>
+          <h3>Comprueba la relevancia</h3>
+          <p>Si ninguna sección supera la puntuación mínima, rechaza la pregunta sin llamar al modelo.</p>
+          <span class="tech">Umbral 0,70 y nodo SI/SINO</span>
+        </li>
+        <li>
+          <h3>Redacta con la fuente</h3>
+          <p>El modelo escribe la respuesta usando solo esas secciones y cita documento y apartado.</p>
+          <span class="tech">gpt-oss-120b en Groq</span>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="barrier" id="barrera">
+    <div class="wrap">
+      <h2>Dos barreras contra las alucinaciones</h2>
+      <p class="measure">En quirófano, una respuesta inventada es peor que ninguna. Por eso el sistema tiene dos controles independientes antes de dar un dato.</p>
+      <div class="gates">
+        <div class="gate">
+          <h3>Barrera 1: la búsqueda</h3>
+          <p class="rule">Sin fragmentos relevantes, no hay respuesta.</p>
+          <p>Si la mejor coincidencia en los manuales puntúa por debajo de 0,70, el flujo devuelve directamente el mensaje de rechazo. El modelo de lenguaje ni siquiera se ejecuta.</p>
+        </div>
+        <div class="gate">
+          <h3>Barrera 2: el prompt</h3>
+          <p class="rule">Con fragmentos, solo puede usar lo que dicen.</p>
+          <p>Instrucciones estrictas: nada de conocimiento general ni suposiciones clínicas, no mezclar prótesis distintas, citar siempre la fuente y rechazar si la información no está completa.</p>
+        </div>
+      </div>
+      <p class="reject"><span>Respuesta idéntica en ambas barreras</span>Esta consulta no está cubierta por los protocolos disponibles.</p>
+    </div>
+  </section>
+
+  <section id="calibracion">
+    <div class="wrap">
+      <div class="two">
+        <div>
+          <h2>Cómo se eligió el umbral</h2>
+          <p>El valor de 0,70 no es arbitrario. Se midió la puntuación de la mejor coincidencia para preguntas de tres tipos y se colocó el corte entre ellas.</p>
+          <p>Una pregunta del mismo ámbito pero sin cobertura, como la dosis de un antibiótico, puntúa más alto que una totalmente ajena. Es el caso más difícil, y el umbral lo deja fuera.</p>
+        </div>
+        <div class="scroll">
+          <table>
+            <caption class="sr-only" style="position:absolute;left:-9999px">Puntuación de la mejor coincidencia por tipo de pregunta</caption>
+            <thead><tr><th scope="col">Pregunta</th><th scope="col">Tipo</th><th scope="col">Puntuación</th></tr></thead>
+            <tbody>
+              <tr><td>Corte distal en la rodilla ACS</td><td>Cubierta</td><td class="num"><span class="bar in" style="width:83px" aria-hidden="true"></span>0,83</td></tr>
+              <tr><td>Dosis de cefazolina en profilaxis</td><td>Mismo ámbito, sin cobertura</td><td class="num"><span class="bar out" style="width:65px" aria-hidden="true"></span>0,65</td></tr>
+              <tr><td>¿Quién ganó la Liga?</td><td>Ajena</td><td class="num"><span class="bar out" style="width:55px" aria-hidden="true"></span>0,55</td></tr>
+            </tbody>
+          </table>
+          <p class="threshold-note">Umbral aplicado: 0,70. Por encima pasa al modelo; por debajo, rechazo directo.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="evaluacion">
+    <div class="wrap">
+      <div class="two">
+        <div>
+          <h2>Evaluación</h2>
+          <p>El sistema se prueba con una batería de 32 preguntas con respuesta esperada y sección de origen:</p>
+          <ul>
+            <li>21 cubiertas por los manuales (ACS, Persona y Legion).</li>
+            <li>1 ambigua, sin indicar la prótesis, para comprobar que no mezcla sistemas.</li>
+            <li>5 del ámbito quirúrgico que no están en los documentos.</li>
+            <li>5 ajenas, incluido un intento de saltarse las instrucciones.</li>
+          </ul>
+          <p>Para cada una se anota si acierta, la puntuación de la búsqueda, el tiempo de respuesta, si cita la fuente y si inventa algo.</p>
+          <p><a id="sheet-link" href="#" target="_blank" rel="noopener">Ver la hoja de evaluación</a></p>
+        </div>
+        <div class="scroll">
+          <table id="results">
+            <thead><tr><th scope="col">Categoría</th><th scope="col">Preguntas</th><th scope="col">Acierto</th></tr></thead>
+            <tbody>
+              <tr><td>Cubiertas</td><td class="num">21</td><td class="num" data-key="pertinente">pendiente</td></tr>
+              <tr><td>Ambigua</td><td class="num">1</td><td class="num" data-key="ambigua">pendiente</td></tr>
+              <tr><td>Ámbito sin cobertura</td><td class="num">5</td><td class="num" data-key="ambito">pendiente</td></tr>
+              <tr><td>Ajenas</td><td class="num">5</td><td class="num" data-key="ajena">pendiente</td></tr>
+            </tbody>
+          </table>
+          <p class="threshold-note">Los porcentajes se rellenan en <code>CONFIG.results</code> al terminar la evaluación.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="herramientas">
+    <div class="wrap">
+      <h2>Herramientas, con coste cero</h2>
+      <p class="measure">Todo el sistema funciona con planes gratuitos, sin licencias corporativas.</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th scope="col">Pieza</th><th scope="col">Herramienta</th><th scope="col">Para qué</th></tr></thead>
+          <tbody>
+            <tr><td>Orquestación</td><td>Dify Cloud (plan Sandbox)</td><td>Flujo de chat con nodos: recuperación, condición, modelo y respuesta. Publica el chat con un enlace público.</td></tr>
+            <tr><td>Embeddings</td><td>Google Gemini, gemini-embedding-001</td><td>Convierte manuales y preguntas en vectores para buscar por significado.</td></tr>
+            <tr><td>Modelo de lenguaje</td><td>gpt-oss-120b servido por Groq</td><td>Redacta la respuesta en segundos. Sustituyó a Gemini Flash, que en el plan gratuito tardaba varios minutos.</td></tr>
+            <tr><td>Preparación de documentos</td><td>Conversión de PDF a Markdown</td><td>Texto limpio, una sección por paso de la técnica y referencias en tablas.</td></tr>
+            <tr><td>Evaluación</td><td>Hoja de cálculo con resumen automático</td><td>Batería de 32 preguntas y métricas por categoría.</td></tr>
+            <tr><td>Publicación</td><td>GitHub Pages</td><td>Esta página.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="documentos">
+    <div class="wrap">
+      <div class="two">
+        <div>
+          <h2>Base documental</h2>
+          <ul class="docs">
+            <li><strong>Rodilla ACS</strong><br>Técnica quirúrgica del sistema de rodilla antialérgica.</li>
+            <li><strong>Rodilla Persona</strong><br>Técnica quirúrgica del sistema de rodilla personalizado.</li>
+            <li><strong>Rodilla Legion</strong><br>Técnica quirúrgica de la artroplastia primaria con corte distal inicial.</li>
+          </ul>
+          <p>Material técnico de los fabricantes, usado con fines exclusivamente académicos.</p>
+        </div>
+        <div>
+          <h2>Limitaciones y siguientes pasos</h2>
+          <ul>
+            <li>No interpreta las figuras de los manuales, solo su texto.</li>
+            <li>El plan gratuito de embeddings limita a 100 peticiones por minuto, lo que obliga a indexar documentos de uno en uno.</li>
+            <li>Una pregunta muy coloquial puede puntuar por debajo del umbral y rechazarse aunque la respuesta exista.</li>
+            <li>Siguiente paso natural: despliegue local, dentro de la red del hospital, para trabajar con protocolos internos sin enviarlos a servicios externos.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="warn">Prueba de concepto académica. No es un producto sanitario ni sustituye al manual del fabricante, a los protocolos del centro ni al criterio del equipo quirúrgico.</p>
+    <p><span id="footer-author">Enrique</span>. Trabajo de Fin de Máster, <span id="footer-year"></span>.</p>
+  </div>
+</footer>
+
+<script>
+/* =================== CONFIGURACIÓN =================== */
+const CONFIG = {
+  // Dirección pública del chatbot: Dify → Publicar → Ejecutar app (o el src del iframe de "Insertar").
+  chatUrl: "",
+  // Enlace a la hoja de evaluación (compártela antes con "Cualquiera con el enlace").
+  sheetUrl: "https://claude.ai/artifact/6GbYYZzSECuL52kEzcG8G8",
+  author: "Enrique",
+  master: "IAcademia",
+  // Al terminar la evaluación, escribe los porcentajes, p. ej. "95 %".
+  results: { pertinente: "", ambigua: "", ambito: "", ajena: "" }
+};
+/* ===================================================== */
+
+(function(){
+  const $ = (id) => document.getElementById(id);
+  $("author-name").textContent = CONFIG.author;
+  $("footer-author").textContent = CONFIG.author;
+  $("master-name").textContent = CONFIG.master;
+  $("footer-year").textContent = new Date().getFullYear();
+
+  const openBtn = $("open-chat");
+  if (CONFIG.chatUrl) {
+    const f = document.createElement("iframe");
+    f.src = CONFIG.chatUrl;
+    f.title = "Chat del Asistente de Quirófano";
+    f.allow = "microphone";
+    f.loading = "lazy";
+    const slot = $("chat-slot");
+    slot.innerHTML = "";
+    slot.appendChild(f);
+    openBtn.href = CONFIG.chatUrl;
+  } else {
+    openBtn.href = "#chat-slot";
+    openBtn.removeAttribute("target");
+  }
+
+  const sheet = $("sheet-link");
+  if (CONFIG.sheetUrl) sheet.href = CONFIG.sheetUrl; else sheet.parentElement.hidden = true;
+
+  document.querySelectorAll("#results [data-key]").forEach((td) => {
+    const v = CONFIG.results[td.dataset.key];
+    if (v) td.textContent = v;
+  });
+
+  if (location.protocol.startsWith("http")) {
+    $("qr-img").src = "https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data=" + encodeURIComponent(location.href.split("#")[0]);
+    $("qr-box").hidden = false;
+  }
+})();
+</script>
+</body>
+</html>
